@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}Кастомизация{% endblock %}
+
+{% block content %}
+<h1>Кастомизация</h1>
+
+{% if request.query_params.get('error') == 'invalid_params' %}
+<div class="error-message" style="text-align:center;margin-bottom:1rem;">Некорректные параметры</div>
+{% endif %}
+
+<div id="customize-root" class="product" style="max-width:1000px;margin:0 auto;"
+     data-products='{{ base_products | tojson | safe }}'
+     data-default-color='{{ default_color }}'
+     data-default-size='{{ default_size }}'>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:2rem;align-items:center;">
+    <!-- Превью реального товара с тонировкой цвета поверх -->
+    <div style="display:flex;justify-content:center;align-items:center;">
+      <div style="position:relative;width:420px;max-width:100%;">
+        <img id="baseImage" src="/static/images/{{ base_products[0].image }}" alt="preview" style="width:100%;height:auto;border-radius:8px;box-shadow:0 4px 6px rgba(0,0,0,.06)">
+        <div id="tint" style="position:absolute;inset:0;border-radius:8px;mix-blend-mode:multiply;pointer-events:none;opacity:.35;"></div>
+      </div>
+    </div>
+
+    <!-- Форма выбора -->
+    <form action="/customize_add_cart" method="post" class="auth-form">
+      <div class="form-group">
+        <label for="base_product_id">Базовый продукт</label>
+        <select id="base_product_id" name="base_product_id" class="form-control">
+          {% for p in base_products %}
+            <option value="{{ p.id }}">{{ p.name }} ({{ p.brand }})</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="color">Цвет</label>
+        <input type="color" id="color" name="color" class="form-control" value="{{ default_color }}">
+      </div>
+
+      <div class="form-group">
+        <label for="size">Размер</label>
+        <select id="size" name="size" class="form-control">
+          <option value="S" {% if default_size=='S' %}selected{% endif %}>S</option>
+          <option value="M" {% if default_size=='M' %}selected{% endif %}>M</option>
+          <option value="L" {% if default_size=='L' %}selected{% endif %}>L</option>
+        </select>
+      </div>
+
+      <button type="submit" class="btn btn-primary"><i class="fas fa-shopping-cart"></i> В корзину</button>
+    </form>
+  </div>
+</div>
+
+<script>
+  const root = document.getElementById('customize-root');
+  const colorEl = document.getElementById('color');
+  const sizeEl = document.getElementById('size');
+  const baseEl = document.getElementById('base_product_id');
+  const baseImg = document.getElementById('baseImage');
+  const tint = document.getElementById('tint');
+
+  const baseProducts = JSON.parse(root.dataset.products || '[]');
+  const baseMap = {};
+  for (const p of baseProducts) {
+    baseMap[p.id] = `/static/images/${p.image}`;
+  }
+
+  function updatePreview(){
+    const id = baseEl.value;
+    const color = colorEl.value;
+    baseImg.src = baseMap[id] || baseImg.src;
+    tint.style.background = color;
+  }
+
+  colorEl.addEventListener('input', updatePreview);
+  baseEl.addEventListener('change', updatePreview);
+  sizeEl.addEventListener('change', updatePreview);
+  // Установим начальные значения по умолчанию
+  try {
+    const defColor = root.dataset.defaultColor || '#e74c3c';
+    colorEl.value = defColor;
+  } catch (e) {}
+  updatePreview();
+</script>
+{% endblock %}
+
+
