@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}Каталог{% endblock %}
+
+{% block content %}
+<h1>Каталог товаров</h1>
+
+{% for row in product_rows %}
+<div class="product-row">
+    {% for product in row %}
+    <div class="product">
+        <img src="/static/images/{{ product.image }}" alt="{{ product.name }}" class="product-img">
+        <div class="product-info">
+            <h3 class="product-title">{{ product.name }}</h3>
+            <p class="product-brand">Бренд: {{ product.brand }}</p>
+            <p class="product-price">{{ product.price }} руб.</p>
+
+            <div class="product-actions">
+                <form action="/add_favorite" method="post">
+                    <input type="hidden" name="product_id" value="{{ product.id }}">
+                    <button type="submit" class="btn btn-outline">
+                        <i class="fas fa-heart"></i> В избранное
+                    </button>
+                </form>
+                <form action="/add_cart" method="post">
+                    <input type="hidden" name="product_id" value="{{ product.id }}">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-shopping-cart"></i> В корзину
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endfor %}
+{% endblock %}
