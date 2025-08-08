@@ -4,7 +4,11 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pathlib import Path
 import os
+import hashlib
 from typing import Optional
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, ForeignKey
+from sqlalchemy.orm import relationship
+from sqlalchemy.orm import sessionmaker, declarative_base, Session
 
 # Получаем абсолютный путь к директории проекта
 BASE_DIR = Path(__file__).parent
@@ -33,8 +37,48 @@ available_product_images = {
     if os.path.exists(BASE_DIR / "static" / "images" / name)
 }
 
-# База данных (в памяти)
-users = {}
+# --- SQLAlchemy: БД пользователей (SQLite) ---
+DATABASE_URL = f"sqlite:///{BASE_DIR / 'app.db'}"
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(50), unique=True, index=True, nullable=False)
+    email = Column(String(120), unique=True, nullable=False)
+    password_hash = Column(String(256), nullable=False)
+
+    # relationship not strictly needed for this simple app
+    # cart_items = relationship("CartItem", back_populates="user")
+
+
+class CartItem(Base):
+    __tablename__ = "cart_items"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    # Item snapshot fields
+    name = Column(String(200), nullable=False)
+    brand = Column(String(100), nullable=True)
+    size = Column(String(10), nullable=True)
+    color = Column(String(20), nullable=True)
+    image = Column(String(200), nullable=True)
+    price = Column(Integer, nullable=False, default=0)
+    base_product_id = Column(Integer, nullable=True)
+    is_custom = Column(Boolean, nullable=False, default=False)
+
+
+Base.metadata.create_all(bind=engine)
+
+
+def get_db() -> Session:
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 products = [
     {"id": 1, "name": "Джиббитсы Nike Air", "price": 8500, "brand": "Nike", "size": "M", "color": "Черный", "image": "product1.jpg"},
     {"id": 2, "name": "Джиббитсы Adidas Ultra", "price": 7900, "brand": "Adidas", "size": "L", "color": "Белый", "image": "product2.jpg"},
@@ -54,7 +98,35 @@ custom_product_counter = 1000
 
 def get_current_user(request: Request):
     session_id = request.cookies.get("session_id")
-    return user_sessions.get(session_id, {"username": None, "favorites": [], "cart": []})
+    default = {"username": None, "favorites": [], "cart": []}
+    session_data = user_sessions.get(session_id)
+    if not session_data or not session_data.get("username"):
+        return default
+    username = session_data["username"]
+    # Load cart from DB so that it persists across restarts
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.username == username).first()
+        if not user:
+            return default
+        items = db.query(CartItem).filter(CartItem.user_id == user.id).all()
+        cart = [
+            {
+                "id": item.id,
+                "name": item.name,
+                "brand": item.brand,
+                "size": item.size,
+                "color": item.color,
+                "image": item.image,
+                "price": item.price,
+                "base_product_id": item.base_product_id,
+                "is_custom": item.is_custom,
+            }
+            for item in items
+        ]
+        return {"username": username, "favorites": [], "cart": cart}
+    finally:
+        db.close()
 
 def find_product_by_id(product_id: int) -> Optional[dict]:
     return next((p for p in products if p["id"] == product_id), None)
@@ -180,8 +252,27 @@ async def add_cart(request: Request, product_id: int = Form(...)):
     if not product:
         return RedirectResponse("/catalog?error=product_not_found", status_code=303)
 
-    user_data["cart"].append(product)
-    
+    # Persist to DB
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.username == user_data["username"]).first()
+        if user:
+            db_item = CartItem(
+                user_id=user.id,
+                name=product["name"],
+                brand=product.get("brand"),
+                size=product.get("size"),
+                color=product.get("color"),
+                image=product.get("image"),
+                price=int(product.get("price", 0)),
+                base_product_id=product.get("id"),
+                is_custom=False,
+            )
+            db.add(db_item)
+            db.commit()
+    finally:
+        db.close()
+
     response = RedirectResponse(url=request.headers.get('referer', '/catalog'), status_code=303)
     return response
 
@@ -200,8 +291,18 @@ async def remove_cart(request: Request, product_id: int = Form(...)):
     user_data = get_current_user(request)
     if not user_data["username"]:
         return RedirectResponse("/login", status_code=303)
-    user_data["cart"] = [item for item in user_data["cart"] if item["id"] != product_id]
-    
+    # Here product_id represents cart item id
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.username == user_data["username"]).first()
+        if user:
+            item = db.query(CartItem).filter(CartItem.id == product_id, CartItem.user_id == user.id).first()
+            if item:
+                db.delete(item)
+                db.commit()
+    finally:
+        db.close()
+
     response = RedirectResponse(url=request.headers.get('referer', '/cart'), status_code=303)
     return response
 
@@ -211,14 +312,21 @@ async def register(
     username: str = Form(...),
     email: str = Form(...),
     password: str = Form(...),
-    password_confirm: str = Form(...)
+    password_confirm: str = Form(...),
+    db: Session = Depends(get_db),
 ):
     if password != password_confirm:
         return RedirectResponse("/register?error=passwords_mismatch", status_code=303)
-    if username in users:
+    # Проверка существующего пользователя
+    existing = db.query(User).filter(User.username == username).first()
+    if existing:
         return RedirectResponse("/register?error=username_taken", status_code=303)
-    
-    users[username] = {"email": email, "password": password}
+
+    password_hash = hashlib.sha256(password.encode("utf-8")).hexdigest()
+    db_user = User(username=username, email=email, password_hash=password_hash)
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
     
     # Создаем сессию для пользователя
     import uuid
@@ -230,16 +338,22 @@ async def register(
     return response
 
 @app.post("/login")
-async def login(request: Request, username: str = Form(...), password: str = Form(...)):
-    if users.get(username, {}).get("password") == password:
-        # Создаем сессию для пользователя
-        import uuid
-        session_id = str(uuid.uuid4())
-        user_sessions[session_id] = {"username": username, "favorites": [], "cart": []}
-        
-        response = RedirectResponse("/", status_code=303)
-        response.set_cookie(key="session_id", value=session_id)
-        return response
+async def login(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.username == username).first()
+    if user:
+        password_hash = hashlib.sha256(password.encode("utf-8")).hexdigest()
+        if user.password_hash == password_hash:
+            import uuid
+            session_id = str(uuid.uuid4())
+            user_sessions[session_id] = {"username": username, "favorites": [], "cart": []}
+            response = RedirectResponse("/", status_code=303)
+            response.set_cookie(key="session_id", value=session_id)
+            return response
     return RedirectResponse("/login?error=invalid_credentials", status_code=303)
 
 @app.get("/logout")
@@ -273,19 +387,25 @@ async def customize_add_cart(
     if not (base_valid and size_valid and color_valid):
         return RedirectResponse("/customize?error=invalid_params", status_code=303)
 
-    # Создаём виртуальный товар и добавляем в корзину
-    global custom_product_counter
-    custom_product_counter += 1
-    product = {
-        "id": custom_product_counter,
-        "name": f"{base_product['name']} — кастом ({size}, {color})",
-        "price": base_product.get("price", 8900),
-        "brand": base_product.get("brand", "Custom"),
-        "size": size,
-        "color": color,
-        # Используем изображение выбранного базового товара
-        "image": base_product.get("image", "product1.jpg"),
-    }
-    user_data["cart"].append(product)
+    # Создаём виртуальный товар и сохраняем в БД
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.username == user_data["username"]).first()
+        if user:
+            db_item = CartItem(
+                user_id=user.id,
+                name=f"{base_product['name']} — кастом ({size}, {color})",
+                brand=base_product.get("brand", "Custom"),
+                size=size,
+                color=color,
+                image=base_product.get("image", "product1.jpg"),
+                price=int(base_product.get("price", 0)),
+                base_product_id=base_product_id,
+                is_custom=True,
+            )
+            db.add(db_item)
+            db.commit()
+    finally:
+        db.close()
     response = RedirectResponse("/cart", status_code=303)
     return response
