@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block title %}Главная{% endblock %}
+
+{% block content %}
+<section class="welcome-section">
+    <h1 class="welcome-title">Добро пожаловать в SelfJibz!</h1>
+    <p class="welcome-text">Лучшие джиббитсы для настоящих ценителей стиля и комфорта. У нас только оригинальные бренды и качественные материалы.</p>
+
+    {% if title_exists %}
+    <img src="/static/images/title.png" alt="SelfJibz" class="welcome-image">
+    {% endif %}
+
+    <div style="display:flex;gap:1rem;justify-content:center;flex-wrap:wrap;">
+        <a href="/catalog" class="welcome-btn">Перейти в каталог</a>
+        <a href="/customize" class="welcome-btn" style="background:#2ecc71;">Кастомизация</a>
+    </div>
+</section>
+{% endblock %}
