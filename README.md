@@ -23,7 +23,7 @@ python -m venv .venv
 
 # 2) Установить зависимости
 python -m pip install --upgrade pip
-pip install fastapi uvicorn jinja2 python-multipart
+pip install fastapi uvicorn jinja2 python-multipart sqlalchemy
 
 # 3) Запустить сервер разработки на 8001
 python -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload
@@ -37,7 +37,7 @@ python -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-pip install fastapi uvicorn jinja2 python-multipart
+pip install fastapi uvicorn jinja2 python-multipart sqlalchemy
 python -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
@@ -88,6 +88,7 @@ static/
 ## Данные и сессии
 - Пользователи, избранное и корзина хранятся в памяти процесса. При перезапуске приложения данные обнуляются.
 - Для обработки форм FastAPI нужен пакет `python-multipart` (он указан в команде установки).
+ - Для аккаунтов используется SQLite (`app.db`) через SQLAlchemy; пароли хешируются (SHA‑256). 
 
 ## Изображения товаров
 - В `static/images` лежат: `product1.jpg`, `product2.jpg`, `product3.jpg`, `logo.png`, `title.png`.
