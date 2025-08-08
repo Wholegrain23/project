@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}Избранное{% endblock %}
+
+{% block content %}
+<h1>Избранное</h1>
+
+{% if favorites %}
+<div class="product-grid">
+    {% for item in favorites %}
+    <div class="product">
+        <img src="/static/images/{{ item.image }}" alt="{{ item.name }}" class="product-img">
+        <div class="product-info">
+            <h3 class="product-title">{{ item.name }}</h3>
+            <p class="product-price">{{ item.price }} руб.</p>
+
+            <div class="product-actions">
+                <form action="/remove_favorite" method="post">
+                    <input type="hidden" name="product_id" value="{{ item.id }}">
+                    <button type="submit" class="btn btn-danger">
+                        <i class="fas fa-trash"></i> Удалить
+                    </button>
+                </form>
+                <form action="/add_cart" method="post">
+                    <input type="hidden" name="product_id" value="{{ item.id }}">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-shopping-cart"></i> В корзину
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<p class="empty-message">Ваш список избранного пуст</p>
+{% endif %}
+
+<div style="text-align: center; margin-top: 2rem;">
+    <a href="/catalog" class="btn btn-outline">
+        <i class="fas fa-arrow-left"></i> Вернуться в каталог
+    </a>
+</div>
+{% endblock %}
